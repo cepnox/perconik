@@ -1,98 +1,35 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<feature
-      id="sk.stuba.fiit.perconik.feature"
-      label="PerConIK Core for Eclipse Platform"
-      version="0.3.0.v20140526-1346"
-      provider-name="Faculty of Informatics and Information Technologies, Slovak University of Technology in Bratislava">
-
-   <description>
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<feature id="sk.stuba.fiit.perconik.feature" label="PerConIK Core for Eclipse Platform" version="1.0.0.v20140528-1300" provider-name="Faculty of Informatics and Information Technologies, Slovak University of Technology in Bratislava">
+  <description>
       PerConIK Core for Eclipse Platform
    </description>
-
-   <copyright url="http://perconik.fiit.stuba.sk">
+  <copyright url="http://perconik.fiit.stuba.sk">
       Copyright (c) 2013 Faculty of Informatics and Information Technologies,
 Slovak University of Technology in Bratislava.
    </copyright>
-
-   <license url="http://opensource.org/licenses/MIT">
+  <license url="http://opensource.org/licenses/MIT">
       The MIT License (MIT)
 
 Copyright (c) 2014 Faculty of Informatics and Information Technologies, Slovak University of Technology in Bratislava
 
 Acknowledgement. This Software is the partial result of the Research and Development Operational Programme for the project Research of methods for acquisition, analysis and personalized conveying of information and knowledge, ITMS 26240220039, co-funded by the ERDF.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the &quot;Software&quot;), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
    </license>
-
-   <url>
-      <update label="PerConIK Eclipse Integration" url="http://perconik.github.io/update"/>
-   </url>
-
-   <plugin
-         id="sk.stuba.fiit.perconik.core"
-         download-size="0"
-         install-size="0"
-         version="0.0.0"
-         unpack="false"/>
-
-   <plugin
-         id="sk.stuba.fiit.perconik.core.java"
-         download-size="0"
-         install-size="0"
-         version="0.0.0"
-         unpack="false"/>
-
-   <plugin
-         id="sk.stuba.fiit.perconik.core.persistence"
-         download-size="0"
-         install-size="0"
-         version="0.0.0"
-         unpack="false"/>
-
-   <plugin
-         id="sk.stuba.fiit.perconik.eclipse"
-         download-size="0"
-         install-size="0"
-         version="0.0.0"
-         unpack="false"/>
-
-   <plugin
-         id="sk.stuba.fiit.perconik.environment"
-         download-size="0"
-         install-size="0"
-         version="0.0.0"
-         unpack="false"/>
-
-   <plugin
-         id="sk.stuba.fiit.perconik.libraries"
-         download-size="0"
-         install-size="0"
-         version="0.0.0"
-         unpack="false"/>
-
-   <plugin
-         id="sk.stuba.fiit.perconik.preferences"
-         download-size="0"
-         install-size="0"
-         version="0.0.0"
-         unpack="false"/>
-
-   <plugin
-         id="sk.stuba.fiit.perconik.ui"
-         download-size="0"
-         install-size="0"
-         version="0.0.0"
-         unpack="false"/>
-
-   <plugin
-         id="sk.stuba.fiit.perconik.utilities"
-         download-size="0"
-         install-size="0"
-         version="0.0.0"
-         unpack="false"/>
-
+  <url>
+    <update label="PerConIK Eclipse Integration" url="http://perconik.github.io/update" />
+  </url>
+  <plugin id="sk.stuba.fiit.perconik.core" download-size="0" install-size="0" version="0.0.0" unpack="false" />
+  <plugin id="sk.stuba.fiit.perconik.core.java" download-size="0" install-size="0" version="0.0.0" unpack="false" />
+  <plugin id="sk.stuba.fiit.perconik.core.persistence" download-size="0" install-size="0" version="0.0.0" unpack="false" />
+  <plugin id="sk.stuba.fiit.perconik.eclipse" download-size="0" install-size="0" version="0.0.0" unpack="false" />
+  <plugin id="sk.stuba.fiit.perconik.environment" download-size="0" install-size="0" version="0.0.0" unpack="false" />
+  <plugin id="sk.stuba.fiit.perconik.libraries" download-size="0" install-size="0" version="0.0.0" unpack="false" />
+  <plugin id="sk.stuba.fiit.perconik.preferences" download-size="0" install-size="0" version="0.0.0" unpack="false" />
+  <plugin id="sk.stuba.fiit.perconik.ui" download-size="0" install-size="0" version="0.0.0" unpack="false" />
+  <plugin id="sk.stuba.fiit.perconik.utilities" download-size="0" install-size="0" version="0.0.0" unpack="false" />
 </feature>
