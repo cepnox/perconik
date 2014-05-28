@@ -223,7 +223,7 @@ public final class IdeDocumentListener extends IdeListener implements EditorList
 			
 			ResourceDeltaKind kind = ResourceDeltaKind.valueOf(delta.getKind());
 
-			if (kind == ADDED)   this.operations.put(IdeDocumentEventType.ADD,    (IFile) resource);
+			//if (kind == ADDED)   this.operations.put(IdeDocumentEventType.ADD,    (IFile) resource); //sometimes generates add during build
 			if (kind == REMOVED) this.operations.put(IdeDocumentEventType.REMOVE, (IFile) resource);
 
 			return false;
