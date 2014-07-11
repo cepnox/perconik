@@ -1,20 +1,20 @@
 package com.gratex.perconik.activity.ide;
 
+import static java.lang.String.valueOf;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.GregorianCalendar;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.TimeZone;
-
 import javax.xml.datatype.DatatypeConfigurationException;
 import javax.xml.datatype.DatatypeFactory;
 import javax.xml.datatype.XMLGregorianCalendar;
-
 import sk.stuba.fiit.perconik.eclipse.core.runtime.PluginConsole;
 import sk.stuba.fiit.perconik.environment.Environment;
-
 import com.google.common.base.CharMatcher;
+import com.google.common.base.Joiner;
+import com.google.common.base.Joiner.MapJoiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
@@ -23,15 +23,15 @@ import com.gratex.perconik.activity.TimeSupplier;
 
 final class Internals
 {
-	static final PluginConsole console = IdeActivityConsole.getInstance();
+	static final PluginConsole console = IdeConsole.getInstance();
 	
 	static final DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
 	static final boolean debug = Environment.debug;
 	
-	static final int unknonwnPid = -1;
+	static final TimeZone timeZone = TimeZone.getTimeZone("UTC"); 
 	
-	static final String enumUriAppName = "eclipse";
+	static final int unknonwnPid = -1;
 	
 	static final String optionsSequence;
 	
@@ -54,6 +54,14 @@ final class Internals
 		}
 		
 		options = builder.build();
+		
+		if (debug)
+		{
+			MapJoiner joiner = Joiner.on("; ").withKeyValueSeparator(": ");
+			
+			console.print("UACA environment variable: %s", valueOf(optionsSequence));
+			console.print("UACA extracted flags: %s", options.isEmpty() ? "none" : joiner.join(options));
+		}
 	}
 	
 	static final DatatypeFactory datatypeFactory;
@@ -76,9 +84,9 @@ final class Internals
 	{
 		timeSupplier = new TimeSupplier()
 		{
-			public final XMLGregorianCalendar from(final long time, boolean utc)
+			public final XMLGregorianCalendar from(final long time)
 			{
-				GregorianCalendar calendar = utc ? new GregorianCalendar(TimeZone.getTimeZone("UTC")) : new GregorianCalendar();
+				GregorianCalendar calendar = new GregorianCalendar(timeZone);
 				
 				calendar.setTimeInMillis(time);
 				
@@ -96,15 +104,11 @@ final class Internals
 	{
 		try
 		{
-			return Environment.pid();
+			return Environment.getProcessIdentifier();
 		}
 		catch (RuntimeException e)
 		{
 			return unknonwnPid;
 		}
-	}
-	
-	static final String enumUriAppName(){
-		return enumUriAppName;
 	}
 }

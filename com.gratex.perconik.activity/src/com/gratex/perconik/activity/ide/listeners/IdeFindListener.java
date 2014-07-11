@@ -1,13 +1,10 @@
 package com.gratex.perconik.activity.ide.listeners;
 
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setApplicationData;
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setEventData;
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setProjectData;
+import static com.gratex.perconik.activity.ide.IdeData.setApplicationData;
+import static com.gratex.perconik.activity.ide.IdeData.setEventData;
+import static com.gratex.perconik.activity.ide.IdeData.setProjectData;
 import static com.gratex.perconik.activity.ide.listeners.Utilities.currentTime;
-
-import java.util.ArrayList;
 import java.util.List;
-
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
@@ -21,32 +18,33 @@ import org.eclipse.search.ui.text.FileTextSearchScope;
 import org.eclipse.search.ui.text.Match;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkingSet;
-
 import sk.stuba.fiit.perconik.core.annotations.Dependent;
 import sk.stuba.fiit.perconik.core.listeners.SearchQueryListener;
 import sk.stuba.fiit.perconik.eclipse.core.resources.Projects;
 import sk.stuba.fiit.perconik.eclipse.jface.text.Documents;
 import sk.stuba.fiit.perconik.eclipse.search.ui.text.MatchUnit;
+import sk.stuba.fiit.perconik.eclipse.swt.widgets.DisplayTask;
 import sk.stuba.fiit.perconik.eclipse.ui.Workbenches;
-import sk.stuba.fiit.perconik.utilities.SmartStringBuilder;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
-import com.gratex.perconik.activity.ide.EnumUriHelper;
-import com.gratex.perconik.activity.ide.IdeDataTransferObjects;
+import com.gratex.perconik.activity.ide.IdeData;
 import com.gratex.perconik.activity.ide.UacaProxy;
-import com.gratex.perconik.services.uaca.ide.dto.*;
+import com.gratex.perconik.activity.ide.UacaUriHelper;
+import com.gratex.perconik.services.uaca.ide.IdeFindEventRequest;
+import com.gratex.perconik.services.uaca.ide.IdeFindFileResultDto;
+import com.gratex.perconik.services.uaca.ide.IdeFindResultRowDto;
 
 /**
- * A listener of {@code IdeFindOperation} events. This listener creates
- * {@link IdeFindOperationDto} data transfer objects and passes them to
- * the <i>Activity Watcher Service</i> to be transferred into the
- * <i>User Activity Client Application</i> for further processing.
+ * A listener of IDE find events. This listener handles desired
+ * events and eventually builds corresponding data transfer objects
+ * of type {@link IdeFindEventRequest} and passes them to the
+ * {@link UacaProxy} to be transferred into the <i>User Activity Central
+ * Application</i> for further processing.
  * 
  * <p>Find operations are logged when a file search is performed.
  * 
- * <p>Data available in an {@code IdeFindOperationDto}:
+ * <p>Data available in an {@code IdeFindEventRequest}:
  * 
  * <ul>
  *   <li>{@code derivedResources} - set to {@code true} if search should
@@ -54,8 +52,8 @@ import com.gratex.perconik.services.uaca.ide.dto.*;
  *   <li>{@code fileTypes} - file name patterns separated by {@code ", "}.
  *   Set to {@code "*"} by default, other examples produce strings such as
  *   {@code "Map*.*, String*.class"}.
- *   <li>{@code findWhat} - the search query string.
- *   <li>{@code lookin} - search scopes separated by {@code ", "}.
+ *   <li>{@code queryText} - the search query string.
+ *   <li>{@code lookinTypeUri} - search scopes separated by {@code ", "}.
  *   In case of enclosed projects or selected resources the string
  *   consists of a list of resource (project) paths relative to workspace
  *   root (but starting with {@code "/"}), and separated by {@code ", "}.
@@ -66,9 +64,8 @@ import com.gratex.perconik.services.uaca.ide.dto.*;
  *   (for enclosed projects or selected resources) or {@code "working sets PerConIK Core, PerConIK Gratex, PerConIK Site"} (for working sets).
  *   <li>{@code matchCase} - set to {@code true} if search is case sensitive,
  *   {@code false} otherwise.
- *   <li>{@code matchWholeWord} - set to {@code true} if search should match
- *   only whole words, {@code false} otherwise.
- *   <li>{@code patternSyntax} - set to {@code "Regular expressions"} when
+ *   <li>{@code matchWholeWord} - always {@code null}, can not be determined.
+ *   <li>{@code patternSyntaxTypeUri} - set to {@code "Regular expressions"} when
  *   enabled or {@code "Wildcards"} by default.
  *   <li>{@code resultsPerFiles} - a list of matched files,
  *   see {@code IdeFindFileResultDto} below.
@@ -108,7 +105,7 @@ import com.gratex.perconik.services.uaca.ide.dto.*;
  * @author Pavol Zbell
  * @since 1.0
  */
-@Dependent({FileSearchQuery.class, FileSearchResult.class, FileTextSearchScope.class})
+@Dependent({FileSearchQuery.class, FileSearchResult.class})
 public final class IdeFindListener extends IdeListener implements SearchQueryListener
 {
 	public IdeFindListener()
@@ -121,7 +118,7 @@ public final class IdeFindListener extends IdeListener implements SearchQueryLis
 
 		data.setQueryText(query.getSearchString());
 		data.setMatchCase(query.isCaseSensitive());
-		//data.setMatchWholeWord(query.isWholeWord());
+		data.setMatchWholeWord(null);
 		data.setSearchSubfolders(null);
 		data.setTotalFilesSearched(null);
 		
@@ -133,8 +130,8 @@ public final class IdeFindListener extends IdeListener implements SearchQueryLis
 
 		data.setDerivedResources(scope.includeDerived());
 		data.setFileTypes(patterns == null ? "*" : Joiner.on(",").join(patterns));
-		data.setLookinTypeUri(EnumUriHelper.getLookinTypeUri(sets == null ? toString(roots) : toString(sets)));
-		data.setPatternSyntaxTypeUri(EnumUriHelper.getPatternSyntaxTypeUri(query.isRegexSearch() ? "regex" : "wildcard"));
+		data.setLookinTypeUri(UacaUriHelper.forLookinType(sets == null ? toString(roots) : toString(sets)));
+		data.setPatternSyntaxTypeUri(UacaUriHelper.forPatternSyntaxType(query.isRegexSearch() ? "regex" : "wildcard"));
 
 		FileSearchResult result = (FileSearchResult) query.getSearchResult();
 		
@@ -144,16 +141,16 @@ public final class IdeFindListener extends IdeListener implements SearchQueryLis
 		setApplicationData(data);
 		setEventData(data, time);
 		
-		if (Log.enabled()) Log.message().appendln("find:").tab().lines(dump(data)).appendTo(console);
-		
 		return data;
 	}
 
 	private static final List<IdeFindFileResultDto> buildResults(FileSearchResult result)
 	{
-		ArrayList<IdeFindFileResultDto>  list = new ArrayList<IdeFindFileResultDto>();
+		Object[] elements = result.getElements();
 		
-		for (Object element: result.getElements())
+		List<IdeFindFileResultDto> list = Lists.newArrayListWithCapacity(elements.length);
+		
+		for (Object element: elements)
 		{
 			IFile   file    = result.getFile(element);
 			Match[] matches = result.getMatches(element);
@@ -168,7 +165,7 @@ public final class IdeFindListener extends IdeListener implements SearchQueryLis
 	{
 		IdeFindFileResultDto data = new IdeFindFileResultDto();
 
-		data.setFile(IdeDataTransferObjects.newDocumentData(file));
+		data.setFile(IdeData.newDocumentData(file));
 		data.setRows(buildMatches(Documents.fromFile(file), matches));
 		
 		return data;
@@ -176,7 +173,7 @@ public final class IdeFindListener extends IdeListener implements SearchQueryLis
 	
 	private static final List<IdeFindResultRowDto> buildMatches(IDocument document, Match[] matches)
 	{
-		ArrayList<IdeFindResultRowDto> list = new ArrayList<IdeFindResultRowDto>();
+		List<IdeFindResultRowDto> list = Lists.newArrayListWithCapacity(matches.length);
 		
 		for (Match match: matches)
 		{
@@ -250,12 +247,16 @@ public final class IdeFindListener extends IdeListener implements SearchQueryLis
 		return "working sets " + Joiner.on(",").join(parts);
 	}
 
-	static final void process(final long time, final IWorkbenchPage page, final ISearchQuery query)
+	static final void process(final long time, final ISearchQuery query)
 	{
+		IWorkbenchPage page = execute(DisplayTask.of(Workbenches.activePageSupplier()));
+		
 		IProject project = Projects.fromPage(page);
 
 		// TODO project can not be always determined: when IClassFile is in editor, or when nothing is selected
-		if(query instanceof FileSearchQuery) //Not always FileSearchQuery (for instance JavaSearchQuery) - todo: handle other types
+		// TODO handle other query types such as JavaSearchQuery
+
+		if (query instanceof FileSearchQuery) 
 		{
 			UacaProxy.sendFindEvent(build(time, project, (FileSearchQuery) query));
 		}
@@ -277,45 +278,12 @@ public final class IdeFindListener extends IdeListener implements SearchQueryLis
 	{
 		final long time = currentTime();
 
-		executeSafely(new Runnable()
+		execute(new Runnable()
 		{
 			public final void run()
 			{
-				process(time, Workbenches.getActivePage(), query);
+				process(time, query);
 			}
 		});
-	}
-
-	private static final String dump(IdeFindEventRequest data)
-	{
-		SmartStringBuilder builder = new SmartStringBuilder();
-		
-		builder.append("app-name: ").appendln(data.getAppName());
-		builder.append("app-version: ").appendln(data.getAppVersion());
-		builder.append("file-types: ").appendln(data.getFileTypes());
-		builder.append("find-what: ").appendln(data.getQueryText());
-		builder.append("lookin: ").appendln(data.getLookinTypeUri());
-		builder.append("pattern-syntax: ").appendln(data.getPatternSyntaxTypeUri());
-		builder.append("project-name: ").appendln(data.getProjectName());
-		builder.append("solution-name: ").appendln(data.getSolutionName());
-		builder.append("files-searched: ").appendln(data.getTotalFilesSearched());
-		builder.appendln("results:").tab();
-		
-		for (IdeFindFileResultDto result: data.getResultsPerFiles())
-		{
-			builder.append("file: ").appendln(result.getFile().getLocalPath());
-			builder.appendln("rows:").tab();
-			
-			for (IdeFindResultRowDto row: result.getRows())
-			{
-				builder.append("row: ").appendln(row.getRow());
-				builder.append("column: ").appendln(row.getColumn());
-				builder.append("text: ").appendln(row.getText());
-			}
-			
-			builder.untab();
-		}
-		
-		return builder.toString();
 	}
 }

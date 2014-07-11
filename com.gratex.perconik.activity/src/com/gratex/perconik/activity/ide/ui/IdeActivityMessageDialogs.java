@@ -30,11 +30,11 @@ public final class IdeActivityMessageDialogs
 				
 				Shell shell = window != null ? window.getShell() : Display.getDefault().getActiveShell(); 
 
-				String title = "Activity watcher service error";
+				String title = "UACA proxy error";
 
 				Preference preference = Preference.usingToggleState(IdeActivityPreferences.getPreferenceStore(), key);  
 		
-				MessageDialogWithPreference.openError(shell, title, message, toggle, preference);
+				MessageDialogWithPreference.openError(shell, title, message, toggle, preference).setBlockOnOpen(true);
 			}
 		};
 		

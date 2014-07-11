@@ -1,126 +1,100 @@
 package sk.stuba.fiit.perconik.preferences;
 
-import java.io.IOException;
+import static com.google.common.base.Preconditions.checkNotNull;
 import org.eclipse.core.runtime.preferences.AbstractPreferenceInitializer;
-import org.eclipse.jface.preference.IPersistentPreferenceStore;
-import org.eclipse.jface.preference.IPreferenceStore;
-import sk.stuba.fiit.perconik.eclipse.jface.preference.DefaultPreferenceStore;
-import sk.stuba.fiit.perconik.preferences.plugin.Activator;
+import org.eclipse.core.runtime.preferences.ConfigurationScope;
+import org.eclipse.core.runtime.preferences.DefaultScope;
+import org.eclipse.core.runtime.preferences.IEclipsePreferences;
+import org.eclipse.core.runtime.preferences.IScopeContext;
+import org.eclipse.core.runtime.preferences.InstanceScope;
+import org.osgi.service.prefs.BackingStoreException;
 
 public abstract class AbstractPreferences
 {
 	final Scope scope;
 
-	final IPreferenceStore store;
-	
-	AbstractPreferences(final Scope scope)
+	final IEclipsePreferences data;
+
+	public AbstractPreferences(final Scope scope, final String qualifier)
 	{
-		this.scope = scope;
-		this.store = scope.store();
+		this.scope = checkNotNull(scope);
+		this.data  = checkNotNull(scope.preferences(qualifier));
 	}
-	
+
 	public static enum Scope
 	{
 		DEFAULT
 		{
 			@Override
-			final IPreferenceStore store()
+			final IScopeContext context()
 			{
-				return DefaultPreferenceStore.of(INSTANCE.store());
+				return DefaultScope.INSTANCE;
 			}
 		},
-		
+
+		CONFIGURATION
+		{
+			@Override
+			final IScopeContext context()
+			{
+				return ConfigurationScope.INSTANCE;
+			}
+		},
+
 		INSTANCE
 		{
 			@Override
-			final IPreferenceStore store()
+			final IScopeContext context()
 			{
-				return Activator.getDefault().getPreferenceStore();
+				return InstanceScope.INSTANCE;
 			}
 		};
-		
-		abstract IPreferenceStore store();
+
+		abstract IScopeContext context();
+
+		final IEclipsePreferences preferences(final String qualifier)
+		{
+			return context().getNode(qualifier);
+		}
 	}
 
 	public static abstract class Initializer extends AbstractPreferenceInitializer
 	{
-		Initializer()
+		protected Initializer()
 		{
 		}
 	}
 
 	public static abstract class Keys
 	{
-		Keys()
+		protected Keys()
 		{
 			throw new AssertionError();
 		}
 	}
 
-	static final String toStringOrFailure(final String key, final Object value)
-	{
-		try
-		{
-			return Serialization.writeToString(value);
-		}
-		catch (Exception e)
-		{
-			throw new RuntimeException("Unable to write object under key " + key + " to string", e);
-		}
-	}
-
-	static final Object fromStringOrFailure(final String key, final String value)
-	{
-		try
-		{
-			return Serialization.readFromString(value);
-		}
-		catch (Exception e)
-		{
-			throw new RuntimeException("Unable to read object under key " + key + " from string", e);
-		}
-	}
-
-	public final Scope getScope()
+	protected final Scope scope()
 	{
 		return this.scope;
 	}
-	
-	public final IPreferenceStore getStore()
+
+	protected final IEclipsePreferences data()
 	{
-		return this.store;
-	}
-	
-	protected final void setDefault(final String key, final Object value)
-	{
-		this.store.setDefault(key, toStringOrFailure(key, value));
+		return this.data;
 	}
 
-	protected final Object getDefaultObject(final String key)
+	public void clear() throws BackingStoreException
 	{
-		return fromStringOrFailure(key, this.store.getDefaultString(key));
+		this.data.clear();
 	}
 
-	protected final void setValue(final String key, final Object value)
+	public void flush() throws BackingStoreException
 	{
-		this.store.setValue(key, toStringOrFailure(key, value));
+		this.data.flush();
 	}
 
-	protected final Object getObject(final String key)
+	public void synchronize() throws BackingStoreException
 	{
-		return fromStringOrFailure(key, this.store.getString(key));
-	}
-	
-	protected final boolean canSave()
-	{
-		return this.store instanceof IPersistentPreferenceStore;
-	}
-
-	public final void save() throws IOException
-	{
-		if (this.canSave())
-		{
-			((IPersistentPreferenceStore) this.store).save();
-		}
+		this.data.sync();
 	}
 }

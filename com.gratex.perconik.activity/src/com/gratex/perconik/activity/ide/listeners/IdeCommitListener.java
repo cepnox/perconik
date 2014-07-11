@@ -1,39 +1,35 @@
 package com.gratex.perconik.activity.ide.listeners;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setApplicationData;
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setEventData;
+import static com.gratex.perconik.activity.ide.IdeData.setApplicationData;
+import static com.gratex.perconik.activity.ide.IdeData.setEventData;
 import static com.gratex.perconik.activity.ide.listeners.Utilities.currentTime;
-
 import java.io.File;
 import java.util.Map;
-
 import javax.annotation.concurrent.GuardedBy;
-
 import org.eclipse.jgit.events.RefsChangedEvent;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
-
 import sk.stuba.fiit.perconik.core.listeners.GitReferenceListener;
 import sk.stuba.fiit.perconik.eclipse.jgit.lib.GitRepositories;
-
 import com.google.common.collect.Maps;
-import com.gratex.perconik.activity.ide.IdeDataTransferObjects;
+import com.gratex.perconik.activity.ide.IdeData;
 import com.gratex.perconik.activity.ide.UacaProxy;
-import com.gratex.perconik.services.uaca.ide.dto.IdeCheckinEventRequest;
+import com.gratex.perconik.services.uaca.ide.IdeCheckinEventRequest;
 
 /**
- * A listener of {@code IdeCommit} events. This listener creates
- * {@link IdeCheckinDto} data transfer objects and passes them to
- * the <i>Activity Watcher Service</i> to be transferred into the
- * <i>User Activity Client Application</i> for further processing.
+ * A listener of IDE commit events. This listener handles desired
+ * events and eventually builds corresponding data transfer objects
+ * of type {@link IdeCheckinEventRequest} and passes them to the
+ * {@link UacaProxy} to be transferred into the <i>User Activity Central
+ * Application</i> for further processing.
  * 
  * <p>Commit listener listens to Git commit events only.
  * 
- * <p>Data available in an {@code IdeCheckinDto}:
+ * <p>Data available in an {@code IdeCheckinEventRequest}:
  * 
  * <ul>
- *   <li>{@code idInRcs} - current Git commit
+ *   <li>{@code changesetIdInRcs} - current Git commit
  *   identifier (40 hexadecimal characters),
  *   for example {@code "ffba951d35f710abee873db3f5547043aeb3fde9"}.
  *   <li>{@code rcsServer} - see {@code RcsServerDto} below.
@@ -43,11 +39,11 @@ import com.gratex.perconik.services.uaca.ide.dto.IdeCheckinEventRequest;
  * <p>Data available in an {@code RcsServerDto}:
  * 
  * <ul>
- *   <li>{@code path} - remote origin URL from the nearest Git repository,
+ *   <li>{@code url} - remote origin URL from the nearest Git repository,
  *   for example {@code https://github.com/perconik/perconik.git}. The nearest
  *   Git repository is the first one found on path starting in project root,
  *   going through workspace root down to the file system root.
- *   <li>{@code type} - always {@code "git"}.
+ *   <li>{@code typeUri} - always {@code "git"}.
  * </ul>
  * 
  * @author Pavol Zbell
@@ -99,7 +95,7 @@ public final class IdeCommitListener extends IdeListener implements GitReference
 		final IdeCheckinEventRequest data = new IdeCheckinEventRequest();
 
 		data.setChangesetIdInRcs(id);
-		data.setRcsServer(IdeDataTransferObjects.newGitServerData(url));
+		data.setRcsServer(IdeData.newGitServerData(url));
 
 		setApplicationData(data);
 		setEventData(data, time);

@@ -1,8 +1,8 @@
 package com.gratex.perconik.activity.ide.listeners;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setApplicationData;
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setEventData;
+import static com.gratex.perconik.activity.ide.IdeData.setApplicationData;
+import static com.gratex.perconik.activity.ide.IdeData.setEventData;
 import static com.gratex.perconik.activity.ide.listeners.IdeCodeListener.Operation.COPY;
 import static com.gratex.perconik.activity.ide.listeners.IdeCodeListener.Operation.CUT;
 import static com.gratex.perconik.activity.ide.listeners.IdeCodeListener.Operation.PASTE;
@@ -12,7 +12,13 @@ import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState
 import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.SUCCEEDED;
 import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.UNDEFINED;
 import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.UNHANDLED;
-
+import static sk.stuba.fiit.perconik.utilities.MoreStrings.equalsIgnoreLineSeparators;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import javax.annotation.concurrent.GuardedBy;
 import org.eclipse.core.commands.ExecutionEvent;
 import org.eclipse.core.commands.ExecutionException;
 import org.eclipse.core.commands.NotEnabledException;
@@ -27,41 +33,44 @@ import org.eclipse.swt.dnd.Clipboard;
 import org.eclipse.swt.dnd.TextTransfer;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.ui.IEditorPart;
+import org.eclipse.ui.IWorkbench;
 import org.eclipse.ui.IWorkbenchPart;
-
 import sk.stuba.fiit.perconik.core.listeners.CommandExecutionListener;
 import sk.stuba.fiit.perconik.core.listeners.DocumentListener;
 import sk.stuba.fiit.perconik.core.listeners.TextSelectionListener;
+import sk.stuba.fiit.perconik.core.listeners.WorkbenchListener;
 import sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionStateHandler;
+import sk.stuba.fiit.perconik.eclipse.swt.widgets.DisplayTask;
 import sk.stuba.fiit.perconik.eclipse.ui.Editors;
 import sk.stuba.fiit.perconik.eclipse.ui.Workbenches;
-import sk.stuba.fiit.perconik.utilities.MoreArrays;
-
+import com.google.common.base.Stopwatch;
 import com.google.common.base.Throwables;
-import com.gratex.perconik.activity.ide.IdeCodeEventType;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.gratex.perconik.activity.ide.UacaProxy;
-import com.gratex.perconik.services.uaca.ide.dto.*;
+import com.gratex.perconik.services.uaca.ide.IdeCodeEventRequest;
+import com.gratex.perconik.services.uaca.ide.type.IdeCodeEventType;
 
 /**
- * A listener of {@code IdeCodeOperation} events. This listener creates
- * {@link IdeCodeOperationDto} data transfer objects and passes them to
- * the <i>Activity Watcher Service</i> to be transferred into the
- * <i>User Activity Client Application</i> for further processing.
- * 
+ * A listener of IDE code events. This listener handles desired
+ * events and eventually builds corresponding data transfer objects
+ * of type {@link IdeCodeEventRequest} and passes them to the
+ * {@link UacaProxy} to be transferred into the <i>User Activity Central
+ * Application</i> for further processing.
+ *
  * <p>Code operation types that this listener is interested in are
- * determined by the {@link IdeCodeOperationTypeEnum} enumeration:
- * 
+ * determined by the {@link IdeCodeEventType} enumeration:
+ *
  * <ul>
  *   <li>Copy - a code is copied.
  *   <li>Cut - a code is cut.
  *   <li>Paste - a code is pasted.
- *   <li>Paste from web - unused, inferred by UACA from regular paste.
  *   <li>Selection changed - a code is selected, cursor is moved discarding
  *   current selection or the code selection is changed otherwise.
  * </ul>
- * 
- * <p>Data available in an {@code IdeCodeOperationDto}:
- * 
+ *
+ * <p>Data available in an {@code IdeCodeEventRequest}:
+ *
  * <ul>
  *   <li>{@code code} - related code.
  *   <li>{@code document} - related document, see documentation of
@@ -70,54 +79,63 @@ import com.gratex.perconik.services.uaca.ide.dto.*;
  *   of code on document line.
  *   <li>{@code endRowIndex} - zero based end line number
  *   of code in document.
- *   <li>{@code operationType} - see {@link IdeCodeOperationTypeEnum}
- *   for all possible values in this field.
  *   <li>{@code startColumnIndex} - zero based start position
  *   of code on document line.
  *   <li>{@code startRowIndex} - zero based start line number
  *   of code in document.
- *   <li>{@code webUrl} - unused, inferred by UACA.
  *   <li>See {@link IdeListener} for documentation of inherited data.
  * </ul>
- * 
+ *
  * <p>Note that row and column offsets in documents start from zero
  * instead of one.
- * 
+ *
  * @author Pavol Zbell
  * @since 1.0
  */
-public final class IdeCodeListener extends IdeListener implements CommandExecutionListener, DocumentListener, TextSelectionListener
+public final class IdeCodeListener extends IdeListener implements CommandExecutionListener, DocumentListener, TextSelectionListener, WorkbenchListener
 {
+	private static final long selectionEventWindow = 500;
+
 	private final CommandExecutionStateHandler paste;
-	
+
+	private final Object lock = new Object();
+
+	@GuardedBy("lock")
+	private final Stopwatch watch;
+
+	@GuardedBy("lock")
+	private LinkedList<SelectionEvent> selections;
+
 	public IdeCodeListener()
 	{
 		this.paste = CommandExecutionStateHandler.of(PASTE.getIdentifier());
+		this.watch = Stopwatch.createUnstarted();
 	}
 
 	static enum Operation
 	{
 		COPY("org.eclipse.ui.edit.copy", IdeCodeEventType.COPY),
-		
+
 		CUT("org.eclipse.ui.edit.cut", IdeCodeEventType.CUT),
-		
+
 		PASTE("org.eclipse.ui.edit.paste", IdeCodeEventType.PASTE);
-		
+
 		private final String id;
-		private final IdeCodeEventType ideCodeEventType;
-		
-		private Operation(String id, IdeCodeEventType ideCodeEventType)
+
+		private final IdeCodeEventType type;
+
+		private Operation(String id, IdeCodeEventType type)
 		{
-			assert !id.isEmpty();
-			
-			this.id = id;
-			this.ideCodeEventType = ideCodeEventType;
+			assert !id.isEmpty() && type != null;
+
+			this.id   = id;
+			this.type = type;
 		}
-		
+
 		public static final Operation resolve(String id)
 		{
 			checkArgument(!id.isEmpty());
-			
+
 			for (Operation operation: values())
 			{
 				if (operation.id.equals(id))
@@ -125,28 +143,29 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 					return operation;
 				}
 			}
-			
+
 			return null;
 		}
-		
+
 		public final String getIdentifier()
 		{
 			return this.id;
 		}
-		public final IdeCodeEventType getIdeCodeEventType()
+
+		public final IdeCodeEventType getEventType()
 		{
-			return this.ideCodeEventType;
+			return this.type;
 		}
 	}
-	
+
 	static final class Region
 	{
 		final Position start = new Position();
-		
+
 		final Position end = new Position();
-		
+
 		String text;
-		
+
 		Region()
 		{
 		}
@@ -155,15 +174,15 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 		{
 			int line, offset;
 		}
-		
+
 		static final Region of(final IDocument document, int offset, int length, final String text)
 		{
 			checkArgument(offset >= 0);
 			checkArgument(length >= 0);
 			checkArgument(text != null);
-			
+
 			Region data = new Region();
-			
+
 			try
 			{
 				data.start.line = document.getLineOfOffset(offset);
@@ -171,9 +190,9 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 
 				data.start.offset = offset - document.getLineOffset(data.start.line);
 				data.end.offset   = offset + length - document.getLineOffset(data.end.line);
-				
+
 				String delimeter = document.getLineDelimiter(data.end.line);
-				
+
 				if (delimeter != null && text.endsWith(delimeter))
 				{
 					data.end.line ++;
@@ -186,79 +205,159 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 			}
 
 			data.text = text;
-			
+
 			return data;
 		}
 	}
 
-	static final IdeCodeEventRequest build(final long time, final UnderlyingDocument<?> document, final Region region)
+	static final IdeCodeEventRequest build(final long time, final UnderlyingResource<?> resource, final Region region)
 	{
 		final IdeCodeEventRequest data = new IdeCodeEventRequest();
 
 		data.setText(region.text);
-		
+
 		data.setStartColumnIndex(region.start.offset);
 		data.setStartRowIndex(region.start.line);
-		
+
 		data.setEndColumnIndex(region.end.offset);
 		data.setEndRowIndex(region.end.line);
 
-		if (Log.enabled())
-		{
-//			Log.message().appendln("document: " + document.getPath() + " operation: " + type)
-			Log.message().appendln("document: " + document.getPath())
-			.append("text: '" + region.text + "' ")
-			.append("from " + region.start.line + ":" + region.start.offset + " ")
-			.appendln("to " + region.end.line + ":" + region.end.offset).appendTo(console);
-		}
-		
-		document.setDocumentData(data);
-		document.setProjectData(data);
-		
+		resource.setDocumentData(data);
+		resource.setProjectData(data);
+
 		setApplicationData(data);
 		setEventData(data, time);
 
 		return data;
 	}
-	
-	static final void process(final long time, final Operation operation)
+
+	private static final class ClipboardReader extends DisplayTask<String>
 	{
-		Clipboard clipboard = new Clipboard(Workbenches.getActiveWindow().getShell().getDisplay());
-		
-	    if (!MoreArrays.contains(clipboard.getAvailableTypeNames(), "Rich Text Format"))
-	    {
-	    	if (Log.enabled()) Log.message().appendln("copy / cut: not rich text format").appendTo(console);
-	    	
-	    	return;
-	    }
-	    
-	    String text = clipboard.getContents(TextTransfer.getInstance()).toString();
-	    
-	    clipboard.dispose();
-		
-		IEditorPart editor = Editors.getActiveEditor();
-		
-		if (editor == null)
+		static final ClipboardReader instance = new ClipboardReader();
+
+		private static final Set<String> supportedTypeNames = ImmutableSet.of("Rich Text Format", "CF_UNICODETEXT", "CF_TEXT");
+
+		private ClipboardReader()
 		{
-			if (Log.enabled()) Log.message().appendln("copy / cut: no active editor not found").appendTo(console);
-	
-			return;
 		}
-		
-		ISourceViewer viewer   = Editors.getSourceViewer(editor);
+
+		@Override
+		public final String call()
+		{
+			Clipboard clipboard = new Clipboard(Workbenches.getActiveWindow().getShell().getDisplay());
+
+		    if (Collections.disjoint(supportedTypeNames, Arrays.asList(clipboard.getAvailableTypeNames())))
+		    {
+		    	if (Log.enabled()) Log.message().append("copy / cut: any of ").list(supportedTypeNames).append(" not in ").list(clipboard.getAvailableTypeNames()).appendln().appendTo(console);
+
+		    	return null;
+		    }
+
+		    String text = clipboard.getContents(TextTransfer.getInstance()).toString();
+
+		    clipboard.dispose();
+
+		    return text;
+		}
+	}
+
+	private static final class SelectionRangeData
+	{
+		final IEditorPart editor;
+
+		final ISourceViewer viewer;
+
+		final Point range;
+
+		SelectionRangeData(final IEditorPart editor, final ISourceViewer viewer, final Point range)
+		{
+			assert editor != null && viewer != null && range != null;
+
+			this.editor = editor;
+			this.viewer = viewer;
+			this.range  = range;
+		}
+	}
+
+	private static final class SelectionRangeReader extends DisplayTask<SelectionRangeData>
+	{
+		static final SelectionRangeReader instance = new SelectionRangeReader();
+
+		private SelectionRangeReader()
+		{
+		}
+
+		@Override
+		public final SelectionRangeData call()
+		{
+			IEditorPart editor = Editors.getActiveEditor();
+
+			if (editor == null)
+			{
+				if (Log.enabled()) Log.message().appendln("copy / cut: no active editor not found").appendTo(console);
+
+				return null;
+			}
+
+			ISourceViewer viewer = Editors.getSourceViewer(editor);
+
+			return new SelectionRangeData(editor, viewer, viewer.getSelectedRange());
+		}
+	}
+
+
+	private static final class SelectionEvent
+	{
+		final long time;
+
+		final IWorkbenchPart part;
+
+		final ITextSelection selection;
+
+		SelectionEvent(final long time, final IWorkbenchPart part, final ITextSelection selection)
+		{
+			assert part != null && selection != null;
+
+			this.time      = time;
+			this.part      = part;
+			this.selection = selection;
+		}
+
+		final boolean isContinuousWith(final SelectionEvent other)
+		{
+			if (this.part != other.part)
+			{
+				return false;
+			}
+
+			int a = this.selection.getOffset();
+			int b = other.selection.getOffset();
+
+			return a == b || (a + this.selection.getLength()) == (b + other.selection.getLength());
+		}
+	}
+
+	static final void processCopyOrCut(final long time, final Operation operation)
+	{
+		String text = execute(ClipboardReader.instance);
+
+		SelectionRangeData data = execute(SelectionRangeReader.instance);
+
+		IEditorPart   editor   = data.editor;
+		ISourceViewer viewer   = data.viewer;
 		IDocument     document = viewer.getDocument();
-		
-		UnderlyingDocument<?> resource = UnderlyingDocument.from(editor);
-		
-		Point range = viewer.getSelectedRange();
-		
+
+		UnderlyingResource<?> resource = UnderlyingResource.from(editor);
+
+		Point range = data.range;
+
 		int offset = range.x;
 		int length = range.y;
-		
-		Region data = Region.of(document, offset, length, text);
+
+		Region region = Region.of(document, offset, length, text);
 
 		String selection;
-		
+
 		try
 		{
 			selection = document.get(offset, length);
@@ -268,12 +367,12 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 			throw Throwables.propagate(e);
 		}
 
-		if (operation == COPY && !data.text.equals(selection))
+		if (operation == COPY && region.text != null && !(region.text.equals(selection) || equalsIgnoreLineSeparators(region.text, selection)))
 		{
 			if (Log.enabled())
 			{
 				Log.message().append("copy: clipboard content not equal to editor selection")
-				.append(" '").append(data.text).append("' != '").append(selection).appendln("'")
+				.append(" '").append(region.text).append("' != '").append(selection).appendln("'")
 				.appendTo(console);
 			}
 
@@ -290,55 +389,69 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 
 			return;
 		}
-		
-		UacaProxy.sendCodeEvent(build(time, resource, data), operation.getIdeCodeEventType());
+
+		UacaProxy.sendCodeEvent(build(time, resource, region), operation.getEventType());
 	}
 
-	static final void process(final long time, final DocumentEvent event)
+	static final void processPaste(final long time, final DocumentEvent event)
 	{
 		IDocument   document = event.getDocument();
 		IEditorPart editor   = Editors.forDocument(document);
-		
+
 		if (editor == null)
 		{
 			if (Log.enabled()) Log.message().appendln("paste: editor not found / documents not equal").appendTo(console);
-	
+
 			return;
 		}
-		
-		UnderlyingDocument<?> resource = UnderlyingDocument.from(editor);
-	
-		Region data = Region.of(document, event.getOffset(), event.getLength(), event.getText());
-		
-		UacaProxy.sendCodeEvent(build(time, resource, data), IdeCodeEventType.PASTE);
+
+		UnderlyingResource<?> resource = UnderlyingResource.from(editor);
+
+		Region region = Region.of(document, event.getOffset(), event.getLength(), event.getText());
+
+		UacaProxy.sendCodeEvent(build(time, resource, region), IdeCodeEventType.PASTE);
 	}
-	
-	//todo: add timer - fix continuous event sequence 
-	static final void process(final long time, final IWorkbenchPart part, final ITextSelection selection)
+
+	static final void processSelection(final long time, final IWorkbenchPart part, final ITextSelection selection)
 	{
 		if (!(part instanceof IEditorPart))
 		{
 			return;
 		}
-		
-		IEditorPart editor   = (IEditorPart) part;
-		IDocument   document = Editors.getDocument(editor);
-		
-		UnderlyingDocument<?> resource = UnderlyingDocument.from(editor);
-		
-		if (document == null || resource == null)
-		{
-			return;
-		}
 
-		Region data = Region.of(document, selection.getOffset(), selection.getLength(), selection.getText());
-		
-		assert data.start.line == selection.getStartLine();
-		assert data.end.line   == selection.getEndLine();
-		
-		UacaProxy.sendCodeEvent(build(time, resource, data), IdeCodeEventType.SELECTION_CHANGED);
+		processSelection(time, UnderlyingContent.from((IEditorPart) part), selection);
 	}
-	
+
+	static final void processSelection(final long time, final UnderlyingContent<?> content, final ITextSelection selection)
+	{
+		Region region = Region.of(content.document, selection.getOffset(), selection.getLength(), selection.getText());
+
+		UacaProxy.sendCodeEvent(build(time, content.resource, region), IdeCodeEventType.SELECTION_CHANGED);
+	}
+
+	@Override
+	public final void preUnregister()
+	{
+		synchronized (this.lock)
+		{
+			if (this.watch.isRunning())
+			{
+				this.stopWatchAndProcessLastSelectionEvent();
+			}
+		}
+	}
+
+	public final boolean preShutdown(final IWorkbench workbench, final boolean forced)
+	{
+		this.preUnregister();
+
+		return true;
+	}
+
+	public final void postShutdown(final IWorkbench workbench)
+	{
+	}
+
 	public final void documentAboutToBeChanged(final DocumentEvent event)
 	{
 	}
@@ -353,30 +466,98 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 
 			return;
 		}
-		
+
 		final long time = Utilities.currentTime();
-		
+
 		execute(new Runnable()
 		{
 			public final void run()
 			{
-				process(time, event);
+				processPaste(time, event);
 			}
 		});
 	}
 
+	@GuardedBy("lock")
+	private final void startWatchAndClearSelectionEvents()
+	{
+		assert !this.watch.isRunning() && this.selections == null;
+
+		this.selections = Lists.newLinkedList();
+
+		this.watch.reset().start();
+	}
+
+	@GuardedBy("lock")
+	private final void stopWatchAndProcessLastSelectionEvent()
+	{
+		assert this.watch.isRunning();
+
+		selectionChanged(this.selections.getLast());
+
+		this.selections = null;
+
+		this.watch.stop();
+	}
+
 	public final void selectionChanged(final IWorkbenchPart part, final ITextSelection selection)
 	{
-		//todo: add timer - fix continuous event sequence 
-//		final long time = Utilities.currentTime();
-//		
-//		execute(new Runnable()
-//		{
-//			public final void run()
-//			{
-//				process(time, part, selection);
-//			}
-//		});
+		final long time = Utilities.currentTime();
+
+		if (selection.getText().isEmpty())
+		{
+			return;
+		}
+
+		synchronized (this.lock)
+		{
+			SelectionEvent event = new SelectionEvent(time, part, selection);
+
+			if (this.watch.isRunning() && !this.selections.getLast().isContinuousWith(event))
+			{
+				if (Log.enabled()) Log.message().format("selection: watch running but different part").appendTo(console);
+
+				this.stopWatchAndProcessLastSelectionEvent();
+			}
+
+			if (!this.watch.isRunning())
+			{
+				if (Log.enabled()) Log.message().format("selection: watch not running").appendTo(console);
+
+				this.startWatchAndClearSelectionEvents();
+			}
+
+			long delta = this.watch.elapsed(TimeUnit.MILLISECONDS);
+
+			this.selections.add(event);
+
+			if (delta < selectionEventWindow)
+			{
+				if (Log.enabled()) Log.message().format("selection: ignore %d < %d%n", delta, selectionEventWindow).appendTo(console);
+
+				this.watch.reset().start();
+
+				return;
+			}
+
+			this.stopWatchAndProcessLastSelectionEvent();
+		}
+	}
+
+	private static final void selectionChanged(final SelectionEvent event)
+	{
+		selectionChanged(event.time, event.part, event.selection);
+	}
+
+	private static final void selectionChanged(final long time, final IWorkbenchPart part, final ITextSelection selection)
+	{
+		execute(new Runnable()
+		{
+			public final void run()
+			{
+				processSelection(time, part, selection);
+			}
+		});
 	}
 
 	public final void preExecute(final String id, final ExecutionEvent event)
@@ -387,16 +568,16 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 	public final void postExecuteSuccess(final String id, final Object result)
 	{
 		final Operation operation = Operation.resolve(id);
-		
+
 		if (operation == COPY || operation == CUT)
 		{
 			final long time = Utilities.currentTime();
-			
-			executeSafely(new Runnable()
+
+			execute(new Runnable()
 			{
 				public final void run()
 				{
-					process(time, operation);
+					processCopyOrCut(time, operation);
 				}
 			});
 		}

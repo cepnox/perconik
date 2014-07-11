@@ -1,37 +1,35 @@
 package com.gratex.perconik.activity.ide.listeners;
 
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setApplicationData;
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setEventData;
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setProjectData;
+import static com.gratex.perconik.activity.ide.IdeData.setApplicationData;
+import static com.gratex.perconik.activity.ide.IdeData.setEventData;
+import static com.gratex.perconik.activity.ide.IdeData.setProjectData;
 import static com.gratex.perconik.activity.ide.listeners.Utilities.currentTime;
-
 import org.eclipse.core.resources.IProject;
 import org.eclipse.debug.core.ILaunch;
 import org.eclipse.ui.IPerspectiveDescriptor;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkbenchPartReference;
-
 import sk.stuba.fiit.perconik.core.listeners.LaunchListener;
 import sk.stuba.fiit.perconik.core.listeners.PerspectiveListener;
 import sk.stuba.fiit.perconik.eclipse.core.resources.Projects;
-
-import com.gratex.perconik.activity.ide.EnumUriHelper;
+import com.gratex.perconik.activity.ide.UacaUriHelper;
 import com.gratex.perconik.activity.ide.UacaProxy;
-import com.gratex.perconik.services.uaca.ide.dto.IdeStateChangeEventRequest;
+import com.gratex.perconik.services.uaca.ide.IdeStateChangeEventRequest;
 
 /**
- * A listener of {@code IdeStateChange} events. This listener creates
- * {@link IdeStateChangeDto} data transfer objects and passes them to
- * the <i>Activity Watcher Service</i> to be transferred into the
- * <i>User Activity Client Application</i> for further processing.
+ * A listener of IDE state change events. This listener handles desired
+ * events and eventually builds corresponding data transfer objects
+ * of type {@link IdeStateChangeEventRequest} and passes them to the
+ * {@link UacaProxy} to be transferred into the <i>User Activity Central
+ * Application</i> for further processing.
  * 
  * <p>State changes are logged when an application launches from Eclipse,
  * or Eclipse perspective changes.
  * 
- * <p>Data available in an {@code IdeStateChangeDto}:
+ * <p>Data available in an {@code IdeStateChangeEventRequest}:
  * 
  * <ul>
- *   <li>{@code stateType} - in case of an application run or debug start
+ *   <li>{@code stateTypeUri} - in case of an application run or debug start
  *   the state type consists of the launch mode concatenated to a string
  *   {@code " (launch)"}, for example {@code "run (launch)"} or
  *   {@code "debug (launch)"}. In case of a perspective change it
@@ -54,7 +52,7 @@ public final class IdeStateListener extends IdeListener implements LaunchListene
 	{
 		final IdeStateChangeEventRequest data = new IdeStateChangeEventRequest();
 
-		data.setStateTypeUri(EnumUriHelper.getIdeStateChangeUri(state));
+		data.setStateTypeUri(UacaUriHelper.forIdeStateChangeType(state));
 
 		setProjectData(data, project);
 		setApplicationData(data);
@@ -65,6 +63,27 @@ public final class IdeStateListener extends IdeListener implements LaunchListene
 		return data;
 	}
 	
+	static final void processLaunch(final long time, final ILaunch launch)
+	{
+		Iterable<IProject> projects = Projects.fromLaunch(launch);
+		
+		String state = launch.getLaunchMode() + " (launch)";
+		
+		for (IProject project: projects)
+		{
+			UacaProxy.sendStateChangeEvent(build(time, project, state));			
+		}
+	}
+	
+	static final void processPerspective(final long time, final IWorkbenchPage page, final IPerspectiveDescriptor descriptor)
+	{
+		IProject project = Projects.fromPage(page);
+
+		String state = descriptor.getLabel().toLowerCase() + " (perspective)";
+
+		UacaProxy.sendStateChangeEvent(build(time, project, state));
+	}
+	
 	public final void launchAdded(final ILaunch launch)
 	{
 		final long time = currentTime();
@@ -73,11 +92,7 @@ public final class IdeStateListener extends IdeListener implements LaunchListene
 		{
 			public final void run()
 			{
-				IProject project = Projects.fromLaunch(launch).iterator().next();
-				
-				String state = launch.getLaunchMode() + " (launch)";
-				
-				UacaProxy.sendIdeStateChangeEvent(build(time, project, state));
+				processLaunch(time, launch);
 			}
 		});
 	}
@@ -106,11 +121,7 @@ public final class IdeStateListener extends IdeListener implements LaunchListene
 		{
 			public final void run()
 			{
-				IProject project = Projects.fromPage(page);
-
-				String state = descriptor.getLabel().toLowerCase() + " (perspective)";
-
-				UacaProxy.sendIdeStateChangeEvent(build(time, project, state));
+				processPerspective(time, page, descriptor);
 			}
 		});
 	}

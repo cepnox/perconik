@@ -1,9 +1,10 @@
 package com.gratex.perconik.activity.ide.listeners;
 
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setApplicationData;
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setEventData;
-import static com.gratex.perconik.activity.ide.IdeDataTransferObjects.setProjectData;
+import static com.gratex.perconik.activity.ide.IdeData.setApplicationData;
+import static com.gratex.perconik.activity.ide.IdeData.setEventData;
+import static com.gratex.perconik.activity.ide.IdeData.setProjectData;
 import static com.gratex.perconik.activity.ide.listeners.Utilities.currentTime;
+import static com.gratex.perconik.activity.ide.listeners.Utilities.isNull;
 import static sk.stuba.fiit.perconik.eclipse.core.resources.ResourceDeltaFlag.OPEN;
 import static sk.stuba.fiit.perconik.eclipse.core.resources.ResourceDeltaKind.ADDED;
 import static sk.stuba.fiit.perconik.eclipse.core.resources.ResourceEventType.POST_CHANGE;
@@ -11,11 +12,8 @@ import static sk.stuba.fiit.perconik.eclipse.core.resources.ResourceEventType.PR
 import static sk.stuba.fiit.perconik.eclipse.core.resources.ResourceEventType.PRE_DELETE;
 import static sk.stuba.fiit.perconik.eclipse.core.resources.ResourceEventType.PRE_REFRESH;
 import static sk.stuba.fiit.perconik.eclipse.core.resources.ResourceType.PROJECT;
-
 import java.util.Set;
-
 import javax.annotation.concurrent.GuardedBy;
-
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IResourceChangeEvent;
@@ -24,29 +22,28 @@ import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.IStructuredSelection;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.IWorkbenchPart;
-
 import sk.stuba.fiit.perconik.core.listeners.ResourceListener;
 import sk.stuba.fiit.perconik.core.listeners.SelectionListener;
-import sk.stuba.fiit.perconik.eclipse.core.resources.AbstractResourceDeltaVisitor;
+import sk.stuba.fiit.perconik.eclipse.core.resources.ResourceDeltaResolver;
 import sk.stuba.fiit.perconik.eclipse.core.resources.Projects;
 import sk.stuba.fiit.perconik.eclipse.core.resources.ResourceDeltaFlag;
 import sk.stuba.fiit.perconik.eclipse.core.resources.ResourceDeltaKind;
 import sk.stuba.fiit.perconik.eclipse.core.resources.ResourceEventType;
 import sk.stuba.fiit.perconik.eclipse.core.resources.ResourceType;
-
 import com.google.common.collect.ImmutableSet;
-import com.gratex.perconik.activity.ide.IdeProjectEventType;
 import com.gratex.perconik.activity.ide.UacaProxy;
-import com.gratex.perconik.services.uaca.ide.dto.IdeProjectEventRequest;
+import com.gratex.perconik.services.uaca.ide.IdeProjectEventRequest;
+import com.gratex.perconik.services.uaca.ide.type.IdeProjectEventType;
 
 /**
- * A listener of {@code IdeProjectOperation} events. This listener creates
- * {@link IdeProjectOperationDto} data transfer objects and passes them to
- * the <i>Activity Watcher Service</i> to be transferred into the
- * <i>User Activity Client Application</i> for further processing.
+ * A listener of IDE project events. This listener handles desired
+ * events and eventually builds corresponding data transfer objects
+ * of type {@link IdeProjectEventRequest} and passes them to the
+ * {@link UacaProxy} to be transferred into the <i>User Activity Central
+ * Application</i> for further processing.
  * 
  * <p>Project operation types that this listener is interested in are
- * determined by the {@link IdeProjectOperationTypeEnum} enumeration:
+ * determined by the {@link IdeProjectEventType} enumeration:
  * 
  * <ul>
  *   <li>Add - a project is added into the workspace.
@@ -54,17 +51,15 @@ import com.gratex.perconik.services.uaca.ide.dto.IdeProjectEventRequest;
  *   <li>Open - a closed project is opened.
  *   <li>Refresh - a project is refreshed.
  *   <li>Remove - a project is removed from the workspace.
- *   <li>Rename - currently not supported. (TODO)
- *   <li>Switch to - focus is changed from one project to another,
- *   editor selections (tabs and text) and structured selections in
- *   package explorer are supported.
+ *   <li>Rename - currently not supported.
+ *   <li>Switch to - focus is changed from one project to another
+ *   and editor selections (tabs and text) are supported. Note that
+ *   structured selections in package explorer are not supported.
  * </ul>
  * 
- * <p>Data available in an {@code IdeProjectOperationDto}:
+ * <p>Data available in an {@code IdeProjectEventRequest}:
  * 
  * <ul>
- *   <li>{@code operationType} - see {@link IdeProjectOperationTypeEnum}
- *   for all possible values in this field.
  *   <li>See {@link IdeListener} for documentation of inherited data.
  * </ul>
  * 
@@ -75,6 +70,10 @@ public final class IdeProjectListener extends IdeListener implements ResourceLis
 {
 	// TODO rename not implemented
 	// TODO switch to --> explorer/a editor/b/file explorer/b --> generates switch-to(a,b,a,b)
+	
+	private static final boolean processStructuredSelections = false;
+	
+	private static final Set<ResourceEventType> resourceEventTypes = ImmutableSet.of(PRE_CLOSE, PRE_DELETE, PRE_REFRESH, POST_CHANGE);
 	
 	private final Object lock = new Object();
 	
@@ -111,12 +110,10 @@ public final class IdeProjectListener extends IdeListener implements ResourceLis
 		setApplicationData(data);
 		setEventData(data, time);
 		
-		if (Log.enabled()) Log.message().appendln("project: " + project.getFullPath() /*+ " operation: " + type*/).appendTo(console);
-		
 		return data;
 	}
 	
-	private static final class ResourceDeltaVisitor extends AbstractResourceDeltaVisitor
+	private static final class ResourceDeltaVisitor extends ResourceDeltaResolver
 	{
 		private final long time;
 		
@@ -155,11 +152,12 @@ public final class IdeProjectListener extends IdeListener implements ResourceLis
 				
 				if (kind == ADDED)
 				{
-					UacaProxy.sendProjectToEvent(build(this.time, project), IdeProjectEventType.ADD);
+					UacaProxy.sendProjectEvent(build(this.time, project), IdeProjectEventType.ADD);
 				}
-				else if(flags.contains(OPEN) && project.isOpen())
+				
+				if (flags.contains(OPEN) && project.isOpen())
 				{
-					UacaProxy.sendProjectToEvent(build(this.time, project), IdeProjectEventType.OPEN);
+					UacaProxy.sendProjectEvent(build(this.time, project), IdeProjectEventType.OPEN);
 				}
 				
 				return false;
@@ -176,15 +174,15 @@ public final class IdeProjectListener extends IdeListener implements ResourceLis
 			switch (this.type)
 			{
 				case PRE_CLOSE:
-					UacaProxy.sendProjectToEvent(build(this.time, (IProject)resource), IdeProjectEventType.CLOSE);
+					UacaProxy.sendProjectEvent(build(this.time, (IProject)resource), IdeProjectEventType.CLOSE);
 					break;
 
 				case PRE_DELETE:
-					UacaProxy.sendProjectToEvent(build(this.time, (IProject)resource), IdeProjectEventType.REMOVE);
+					UacaProxy.sendProjectEvent(build(this.time, (IProject)resource), IdeProjectEventType.REMOVE);
 					break;
 
 				case PRE_REFRESH:
-					UacaProxy.sendProjectToEvent(build(this.time, (IProject)resource), IdeProjectEventType.REFRESH);
+					UacaProxy.sendProjectEvent(build(this.time, (IProject)resource), IdeProjectEventType.REFRESH);
 					break;
 
 				default:
@@ -195,31 +193,39 @@ public final class IdeProjectListener extends IdeListener implements ResourceLis
 		}
 	}
 	
-	static final void process(final long time, final IResourceChangeEvent event)
+	static final void processResource(final long time, final IResourceChangeEvent event)
 	{
 		ResourceEventType type  = ResourceEventType.valueOf(event.getType());
 		IResourceDelta    delta = event.getDelta();
 	
-		new ResourceDeltaVisitor(time, type).visitOrHandle(delta, event);
+		new ResourceDeltaVisitor(time, type).visitOrProbe(delta, event);
 	}
 
-	final void process(final long time, final IWorkbenchPart part, final ISelection selection)
+	final void processSelection(final long time, final IWorkbenchPart part, final ISelection selection)
 	{
-		IProject project = part instanceof IEditorPart ? Projects.fromEditor((IEditorPart) part) : null;
-		
-		if (project == null && selection instanceof IStructuredSelection)
+		IProject project = null;
+
+		if (processStructuredSelections)
 		{
-			project = Projects.fromSelection((IStructuredSelection) selection);
+			if (selection instanceof IStructuredSelection)
+			{
+				project = Projects.fromSelection((IStructuredSelection) selection);
+			}
 		}
 		
-		if (project == null)
+		if (isNull(project) && part instanceof IEditorPart)
+		{
+			project = Projects.fromEditor((IEditorPart) part);
+		}
+		
+		if (isNull(project))
 		{
 			project = Projects.fromPage(part.getSite().getPage());
 		}
 		
 		if (this.updateProject(project))
 		{
-			UacaProxy.sendProjectToEvent(build(time, project), IdeProjectEventType.SWITCH_TO);
+			UacaProxy.sendProjectEvent(build(time, project), IdeProjectEventType.SWITCH_TO);
 		}
 	}
 
@@ -231,7 +237,7 @@ public final class IdeProjectListener extends IdeListener implements ResourceLis
 		{
 			public final void run()
 			{
-				process(time, event);
+				processResource(time, event);
 			}
 		});
 	}
@@ -240,17 +246,17 @@ public final class IdeProjectListener extends IdeListener implements ResourceLis
 	{
 		final long time = currentTime();
 
-		executeSafely(new Runnable()
+		execute(new Runnable()
 		{
 			public final void run()
 			{
-				process(time, part, selection);
+				processSelection(time, part, selection);
 			}
 		});
 	}
 
 	public final Set<ResourceEventType> getEventTypes()
 	{
-		return ImmutableSet.of(PRE_CLOSE, PRE_DELETE, PRE_REFRESH, POST_CHANGE);
+		return resourceEventTypes;
 	}
 }
