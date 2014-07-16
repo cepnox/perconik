@@ -2,7 +2,7 @@
 <feature
       id="sk.stuba.fiit.perconik.core.feature"
       label="PerConIK Eclipse Platform Core"
-      version="0.5.2.qualifier"
+      version="1.0.1"
       provider-name="Faculty of Informatics and Information Technologies, Slovak University of Technology in Bratislava">
 
    <description>
@@ -29,7 +29,7 @@ THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRES
    </license>
 
    <url>
-      <update label="PerConIK Eclipse Integration" url="http://perconik.github.io/update"/>
+      <update label="PerConIK Eclipse Integration" url="http://perconikprod.hq.gratex.com/eclipsetools"/>
    </url>
 
    <includes
@@ -57,12 +57,12 @@ THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRES
          version="0.0.0"
          unpack="false"/>
 
-   <plugin
+   <!-- <plugin
          id="sk.stuba.fiit.perconik.core.java.examples"
          download-size="0"
          install-size="0"
          version="0.0.0"
-         unpack="false"/>
+         unpack="false"/> -->
 
    <plugin
          id="sk.stuba.fiit.perconik.core.persistence"
