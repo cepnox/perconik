@@ -1,32 +1,12 @@
 package com.gratex.perconik.activity.ide.listeners;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.gratex.perconik.activity.ide.IdeData.setApplicationData;
-import static com.gratex.perconik.activity.ide.IdeData.setEventData;
-import static com.gratex.perconik.activity.ide.listeners.IdeCodeListener.Operation.COPY;
-import static com.gratex.perconik.activity.ide.listeners.IdeCodeListener.Operation.CUT;
-import static com.gratex.perconik.activity.ide.listeners.IdeCodeListener.Operation.PASTE;
-import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.DISABLED;
-import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.EXECUTING;
-import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.FAILED;
-import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.SUCCEEDED;
-import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.UNDEFINED;
-import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.UNHANDLED;
-import static sk.stuba.fiit.perconik.utilities.MoreStrings.equalsIgnoreLineSeparators;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
-import com.gratex.perconik.activity.ide.UacaProxy;
-import com.gratex.perconik.services.uaca.ide.IdeCodeEventRequest;
-import com.gratex.perconik.services.uaca.ide.type.IdeCodeEventType;
-
-import sk.stuba.fiit.perconik.core.listeners.CommandExecutionListener;
-import sk.stuba.fiit.perconik.core.listeners.DocumentListener;
-import sk.stuba.fiit.perconik.core.listeners.EditorListener;
-import sk.stuba.fiit.perconik.core.listeners.TextSelectionListener;
-import sk.stuba.fiit.perconik.core.listeners.WorkbenchListener;
-import sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionStateHandler;
-import sk.stuba.fiit.perconik.eclipse.swt.widgets.DisplayTask;
-import sk.stuba.fiit.perconik.eclipse.ui.Editors;
-import sk.stuba.fiit.perconik.eclipse.ui.Workbenches;
+import javax.annotation.concurrent.GuardedBy;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Throwables;
@@ -51,13 +31,36 @@ import org.eclipse.ui.IEditorReference;
 import org.eclipse.ui.IWorkbench;
 import org.eclipse.ui.IWorkbenchPart;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.LinkedList;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
+import com.gratex.perconik.activity.ide.UacaProxy;
+import com.gratex.perconik.services.uaca.ide.IdeCodeEventRequest;
+import com.gratex.perconik.services.uaca.ide.type.IdeCodeEventType;
 
-import javax.annotation.concurrent.GuardedBy;
+import sk.stuba.fiit.perconik.core.listeners.CommandExecutionListener;
+import sk.stuba.fiit.perconik.core.listeners.DocumentListener;
+import sk.stuba.fiit.perconik.core.listeners.EditorListener;
+import sk.stuba.fiit.perconik.core.listeners.TextSelectionListener;
+import sk.stuba.fiit.perconik.core.listeners.WorkbenchListener;
+import sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionStateHandler;
+import sk.stuba.fiit.perconik.eclipse.swt.widgets.DisplayTask;
+import sk.stuba.fiit.perconik.eclipse.ui.Editors;
+import sk.stuba.fiit.perconik.eclipse.ui.Workbenches;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Strings.isNullOrEmpty;
+
+import static com.gratex.perconik.activity.ide.IdeData.setApplicationData;
+import static com.gratex.perconik.activity.ide.IdeData.setEventData;
+import static com.gratex.perconik.activity.ide.listeners.IdeCodeListener.Operation.COPY;
+import static com.gratex.perconik.activity.ide.listeners.IdeCodeListener.Operation.CUT;
+import static com.gratex.perconik.activity.ide.listeners.IdeCodeListener.Operation.PASTE;
+
+import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.DISABLED;
+import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.EXECUTING;
+import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.FAILED;
+import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.SUCCEEDED;
+import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.UNDEFINED;
+import static sk.stuba.fiit.perconik.eclipse.core.commands.CommandExecutionState.UNHANDLED;
+import static sk.stuba.fiit.perconik.utilities.MoreStrings.equalsIgnoreLineSeparators;
 
 /**
  * A listener of IDE code events. This listener handles desired
@@ -102,7 +105,7 @@ import javax.annotation.concurrent.GuardedBy;
  */
 public final class IdeCodeListener extends IdeListener implements CommandExecutionListener, DocumentListener, EditorListener, TextSelectionListener, WorkbenchListener
 {
-	private static final long selectionEventWindow = 500;
+	static final long selectionEventWindow = 500;
 
 	private final CommandExecutionStateHandler paste;
 
@@ -112,7 +115,10 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 	private final Stopwatch watch;
 
 	@GuardedBy("lock")
-	private LinkedList<SelectionEvent> selections;
+	private LinkedList<SelectionEvent> continuousSelections;
+
+	@GuardedBy("lock")
+	private SelectionEvent lastSentSelection;
 
 	public IdeCodeListener()
 	{
@@ -313,7 +319,6 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 		}
 	}
 
-
 	private static final class SelectionEvent
 	{
 		final long time;
@@ -331,6 +336,11 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 			this.selection = selection;
 		}
 
+		final boolean contentEquals(final SelectionEvent other)
+		{
+			return this.part == other.part && this.selection.equals(other.selection);
+		}
+
 		final boolean isContinuousWith(final SelectionEvent other)
 		{
 			if (this.part != other.part)
@@ -342,6 +352,16 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 			int b = other.selection.getOffset();
 
 			return a == b || (a + this.selection.getLength()) == (b + other.selection.getLength());
+		}
+
+		final boolean isSelectionEmpty()
+		{
+			return this.selection.isEmpty();
+		}
+
+		final boolean isSelectionTextEmpty()
+		{
+			return isNullOrEmpty(this.selection.getText());
 		}
 	}
 
@@ -501,9 +521,9 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 	@GuardedBy("lock")
 	private final void startWatchAndClearSelectionEvents()
 	{
-		assert !this.watch.isRunning() && this.selections == null;
+		assert !this.watch.isRunning() && this.continuousSelections == null;
 
-		this.selections = Lists.newLinkedList();
+		this.continuousSelections = Lists.newLinkedList();
 
 		this.watch.reset().start();
 	}
@@ -511,11 +531,13 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 	@GuardedBy("lock")
 	private final void stopWatchAndProcessLastSelectionEvent()
 	{
-		assert this.watch.isRunning();
+		assert this.watch.isRunning() && this.continuousSelections != null;
 
-		selectionChanged(this.selections.getLast());
+		this.lastSentSelection = this.continuousSelections.getLast();
 
-		this.selections = null;
+		selectionChanged(this.lastSentSelection);
+
+		this.continuousSelections = null;
 
 		this.watch.stop();
 	}
@@ -524,7 +546,7 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 	{
 		final long time = Utilities.currentTime();
 
-		if (selection.getText().isEmpty())
+		if (selection.isEmpty())
 		{
 			return;
 		}
@@ -533,9 +555,21 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 		{
 			SelectionEvent event = new SelectionEvent(time, part, selection);
 
-			if (this.watch.isRunning() && !this.selections.getLast().isContinuousWith(event))
+			boolean empty = event.isSelectionTextEmpty();
+
+			if (empty && (this.lastSentSelection == null || this.lastSentSelection.part != part))
 			{
-				if (Log.enabled()) Log.message().format("selection: watch running but different part").appendTo(console);
+				return;
+			}
+
+			if (this.lastSentSelection != null && this.lastSentSelection.contentEquals(event))
+			{
+				return;
+			}
+
+			if (this.watch.isRunning() && !this.continuousSelections.getLast().isContinuousWith(event))
+			{
+				if (Log.enabled()) Log.message().format("selection: watch running but not continuous").appendTo(console);
 
 				this.stopWatchAndProcessLastSelectionEvent();
 			}
@@ -549,9 +583,9 @@ public final class IdeCodeListener extends IdeListener implements CommandExecuti
 
 			long delta = this.watch.elapsed(TimeUnit.MILLISECONDS);
 
-			this.selections.add(event);
+			this.continuousSelections.add(event);
 
-			if (delta < selectionEventWindow)
+			if (!empty && delta < selectionEventWindow)
 			{
 				if (Log.enabled()) Log.message().format("selection: ignore %d < %d%n", delta, selectionEventWindow).appendTo(console);
 
