@@ -38,7 +38,7 @@ public final class IdeActivityPreferences
 			IPreferenceStore store = getPreferenceStore();
 			
 			store.setDefault(checkConnection, true);
-			store.setDefault(displayErrors, true);
+			store.setDefault(displayErrors, false);
 
 			store.setDefault(logErrors, true);
 			store.setDefault(logEvents, false);
