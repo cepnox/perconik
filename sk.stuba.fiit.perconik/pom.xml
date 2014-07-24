@@ -4,13 +4,13 @@
 	<parent>
 		<groupId>perconik</groupId>
 		<artifactId>perconik</artifactId>
-		<version>1.0.2</version>
+		<version>1.0.3</version>
 		<relativePath>..</relativePath>
 	</parent>
 	
 	<groupId>sk.stuba.fiit.perconik</groupId>
 	<artifactId>sk.stuba.fiit.perconik</artifactId>
-	<version>1.0.2</version>
+	<version>1.0.3</version>
 	<packaging>pom</packaging>
  
 	<modules>
